@@ -54,5 +54,8 @@ basicdmmtest: basicdmmtest.c dmm.o
 dmm.o: dmm.c dmm.h
 	$(CC) $(CFLAGS) -c dmm.c
 
+unit_test: dmm.c dmm.h test.c
+	$(CC) $(CFLAGS) -o $@ dmm.c test.c
+
 clean:
-	rm -rf *.o ${EXECUTABLES} *.dSYM a.out 
+	rm -rf *.o ${EXECUTABLES} *.dSYM a.out unit_test
