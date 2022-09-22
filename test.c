@@ -17,18 +17,18 @@ void test_dmalloc() {
     assert(dmalloc(20) != NULL);
     printf("dmalloc(20) passed\n");
     
-    int * arr = dmalloc(101 * sizeof(int));
-    for (int i = 0; i < 101; i++) {
-        arr[i] = i;
+    char * arr = dmalloc(26 * sizeof(*arr));
+    for (int i = 0; i < 26; i++) {
+        arr[i] = 'a' + i;
     }
 
-    for (int i = 0; i < 101; i++) {
-        assert(arr[i] == i);
-        arr[i] = 0;
+    for (int i = 0; i < 26; i++) {
+        assert(arr[i] == ('a' + i));
+        arr[i] = 'a';
     }
 
-    for (int i = 0; i < 101; i++) {
-        assert(arr[i] == 0);
+    for (int i = 0; i < 26; i++) {
+        assert(arr[i] == 'a');
     }
 
     printf("test dmalloc write passed\n");

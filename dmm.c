@@ -25,6 +25,15 @@ typedef struct metadata {
   struct metadata* prev;
 } metadata_t;
 
+typedef struct  metadata_footer
+{
+  bool isAllocate;
+  size_t size;
+} metadata_footer_t;
+
+#define METADATA_FOOTER_T_ALIGN (ALIGN(sizeof(metadata_footer_t)))
+
+
 
 /*
  * Head of the freelist: pointer to the header of the first free block.
@@ -84,7 +93,7 @@ void insertToFreeList(metadata_t* blockToPush) {
   freelist = blockToPush;
 }
 
-void initBlock(metadata_t * blockToInit) {
+void initHeader(metadata_t * blockToInit) {
   blockToInit->isAllocate = false;
   blockToInit->size = 0;
   blockToInit->prev = NULL;
@@ -135,7 +144,7 @@ void * splitBlock(void * blockToSplit, size_t bytesRequest) {
   removeList(blockToSplit);
   // TODO: add footer
   void * freeblock = blockToSplit + bytesRequest;
-  initBlock(freeblock);
+  initHeader(freeblock);
   addTag(freeblock, ((metadata_t *)blockToSplit)->size - bytesRequest, false);
   insertToFreeList(freeblock);
 
@@ -143,7 +152,7 @@ void * splitBlock(void * blockToSplit, size_t bytesRequest) {
 }
 
 void test_dmm_init_add_header() {
-    size_t correctSize = ALIGN(MAX_HEAP_SIZE) - METADATA_T_ALIGNED * 3;
+    size_t correctSize = ALIGN(MAX_HEAP_SIZE) - (METADATA_T_ALIGNED + (METADATA_FOOTER_T_ALIGN * 2));
     assert(freelist->size == correctSize);
     printf("===== dmm_init Test passed!======\n");
     exit(0);
@@ -168,7 +177,7 @@ void* dmalloc(size_t numbytes) {
   }
 
   foundBlock = splitBlock(foundBlock, numbytes);
-  initBlock(foundBlock);
+  initHeader(foundBlock);
   addTag(foundBlock, numbytes, true);
 
   return foundBlock + METADATA_T_ALIGNED;
@@ -197,20 +206,23 @@ bool dmalloc_init() {
   }
 
   // add a prologue header
-  initBlock(freelist);
-  addTag(freelist, 8, true);
-  freelist = (void*)freelist + METADATA_T_ALIGNED;
+  initHeader(freelist);
+  freelist->size = METADATA_T_ALIGNED;
+  freelist->isAllocate = true;
   // add a prologue footer
-  initBlock(freelist);
-  addTag(freelist, 8, true);
   freelist = (void*)freelist + METADATA_T_ALIGNED;
+  freelist->size = METADATA_T_ALIGNED;
+  freelist->isAllocate = true;
+  // init freelist header
+  freelist = (void*)freelist + METADATA_FOOTER_T_ALIGN;
+  initHeader(freelist);
+  freelist->size = max_bytes - (METADATA_T_ALIGNED + METADATA_FOOTER_T_ALIGN); // footer and header
   // add epilogue footer
-  initBlock(freelist);
-  freelist->size = max_bytes - (METADATA_T_ALIGNED * 2); // footer, header, and freelist header
-  metadata_t * footerPtr = ((void*)((void*)freelist + freelist->size) - METADATA_T_ALIGNED);
-  freelist->size -= METADATA_T_ALIGNED;
-  initBlock(footerPtr);
-  addTag(footerPtr, 0, true);
+  metadata_footer_t * footerPtr = ((void*)((void*)freelist + freelist->size) - METADATA_FOOTER_T_ALIGN);
+  footerPtr->size = METADATA_FOOTER_T_ALIGN + 0;
+  footerPtr->isAllocate = true;
+
+  freelist->size -= METADATA_FOOTER_T_ALIGN;
 
   return true;
 }
