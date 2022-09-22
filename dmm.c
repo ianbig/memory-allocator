@@ -73,18 +73,13 @@ void print_freelist() {
   DEBUG("\n");
 }
 
-/**
- * @brief add size and allocation status to ptr
- * 
- * @param ptr block to add info
- * @param size size of this block
- * @param isAllocated whether block is allocated
- */
-void addTag(metadata_t * ptr, size_t size, bool isAllocated) {
-  ptr->isAllocate = isAllocated;
-  ptr->size = size;
-}
 
+/** *
+ * @brief initialized header and footer to specified block
+ * @param block to initialize
+ * @param size size of this block (header + request_size + footer)
+ * @param isAllocate indicate whether block is allocated
+ */
 void add_header_footer(void * block, size_t size, bool isAllocate) {
   metadata_t * header = block;
   header->size = size;
@@ -155,7 +150,7 @@ void * splitBlock(void * blockToSplit, size_t bytesRequest) {
   // TODO: add footer
   void * freeblock = blockToSplit + bytesRequest;
   initHeader(freeblock);
-  addTag(freeblock, ((metadata_t *)blockToSplit)->size - bytesRequest, false);
+  add_header_footer(freeblock,((metadata_t *)blockToSplit)->size - bytesRequest, false);
   insertToFreeList(freeblock);
 
   return blockToSplit;
@@ -179,7 +174,7 @@ void* dmalloc(size_t numbytes) {
   assert(numbytes > 0);
 
   /* your code here */
-  numbytes = ALIGN(numbytes) + METADATA_T_ALIGNED;
+  numbytes = ALIGN(numbytes) + METADATA_T_ALIGNED + METADATA_FOOTER_T_ALIGN;
   void * foundBlock = findFreeBlock(numbytes);
   if (foundBlock == NULL) {
     fprintf(stderr, "Error: heap size not enough\n");
@@ -188,7 +183,7 @@ void* dmalloc(size_t numbytes) {
 
   foundBlock = splitBlock(foundBlock, numbytes);
   initHeader(foundBlock);
-  addTag(foundBlock, numbytes, true);
+  add_header_footer(foundBlock, numbytes, true);
 
   return foundBlock + METADATA_T_ALIGNED;
 }
