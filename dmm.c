@@ -85,6 +85,16 @@ void addTag(metadata_t * ptr, size_t size, bool isAllocated) {
   ptr->size = size;
 }
 
+void add_header_footer(void * block, size_t size, bool isAllocate) {
+  metadata_t * header = block;
+  header->size = size;
+  header->isAllocate = isAllocate;
+
+  metadata_footer_t * footer = block + size - METADATA_FOOTER_T_ALIGN;
+  footer->size = size;
+  footer->isAllocate = isAllocate;
+}
+
 void insertToFreeList(metadata_t* blockToPush) {
   if (freelist) {
     blockToPush->next = freelist;
@@ -205,18 +215,13 @@ bool dmalloc_init() {
     return false;
   }
 
-  // add a prologue header
+  // add a prologue header and footer
   initHeader(freelist);
-  freelist->size = METADATA_T_ALIGNED;
-  freelist->isAllocate = true;
-  // add a prologue footer
-  freelist = (void*)freelist + METADATA_T_ALIGNED;
-  freelist->size = METADATA_T_ALIGNED;
-  freelist->isAllocate = true;
+  add_header_footer(freelist, METADATA_T_ALIGNED + METADATA_FOOTER_T_ALIGN, true);
   // init freelist header
-  freelist = (void*)freelist + METADATA_FOOTER_T_ALIGN;
+  freelist = (void*)freelist + freelist->size;
   initHeader(freelist);
-  freelist->size = max_bytes - (METADATA_T_ALIGNED + METADATA_FOOTER_T_ALIGN); // footer and header
+  add_header_footer(freelist,  max_bytes - (METADATA_T_ALIGNED + METADATA_FOOTER_T_ALIGN), false);
   // add epilogue footer
   metadata_footer_t * footerPtr = ((void*)((void*)freelist + freelist->size) - METADATA_FOOTER_T_ALIGN);
   footerPtr->size = METADATA_FOOTER_T_ALIGN + 0;
