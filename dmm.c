@@ -64,6 +64,18 @@ void print_freelist() {
   DEBUG("\n");
 }
 
+/**
+ * @brief add size and allocation status to ptr
+ * 
+ * @param ptr block to add info
+ * @param size size of this block
+ * @param isAllocated whether block is allocated
+ */
+void addTag(metadata_t * ptr, size_t size, bool isAllocated) {
+  ptr->isAllocate = isAllocated;
+  ptr->size = size;
+}
+
 void insertToFreeList(metadata_t* blockToPush) {
   if (freelist) {
     blockToPush->next = freelist;
@@ -74,7 +86,7 @@ void insertToFreeList(metadata_t* blockToPush) {
 
 void initBlock(metadata_t * blockToInit) {
   blockToInit->isAllocate = false;
-  blockToInit->size = 10;
+  blockToInit->size = 0;
   blockToInit->prev = NULL;
   blockToInit->next = NULL;
 }
@@ -121,15 +133,20 @@ void * splitBlock(void * blockToSplit, size_t bytesRequest) {
   }
 
   removeList(blockToSplit);
-
+  // TODO: add footer
   void * freeblock = blockToSplit + bytesRequest;
   initBlock(freeblock);
-  ((metadata_t *)freeblock)->size = ((metadata_t *)blockToSplit)->size - bytesRequest;
+  addTag(freeblock, ((metadata_t *)blockToSplit)->size - bytesRequest, false);
   insertToFreeList(freeblock);
 
-  ((metadata_t *)blockToSplit)->isAllocate = 1;
-  ((metadata_t *)blockToSplit)->size = bytesRequest;
   return blockToSplit;
+}
+
+void test_dmm_init_add_header() {
+    size_t correctSize = ALIGN(MAX_HEAP_SIZE) - METADATA_T_ALIGNED * 3;
+    assert(freelist->size == correctSize);
+    printf("===== dmm_init Test passed!======\n");
+    exit(0);
 }
 
 void* dmalloc(size_t numbytes) {
@@ -137,6 +154,7 @@ void* dmalloc(size_t numbytes) {
     if(!dmalloc_init()) {
       return NULL;
     }
+    // test_dmm_init_add_header();
   }
 
   assert(numbytes > 0);
@@ -150,7 +168,8 @@ void* dmalloc(size_t numbytes) {
   }
 
   foundBlock = splitBlock(foundBlock, numbytes);
-  print_freelist();
+  initBlock(foundBlock);
+  addTag(foundBlock, numbytes, true);
 
   return foundBlock + METADATA_T_ALIGNED;
 }
@@ -176,12 +195,23 @@ bool dmalloc_init() {
     perror("dmalloc_init: mmap failed");
     return false;
   }
-  freelist->isAllocate = false;
-  freelist->next = NULL;
-  freelist->prev = NULL;
-  freelist->size = max_bytes-METADATA_T_ALIGNED;
 
-  // TODO: add prologue and epilogue block
+  // add a prologue header
+  initBlock(freelist);
+  addTag(freelist, 8, true);
+  freelist = (void*)freelist + METADATA_T_ALIGNED;
+  // add a prologue footer
+  initBlock(freelist);
+  addTag(freelist, 8, true);
+  freelist = (void*)freelist + METADATA_T_ALIGNED;
+  // add epilogue footer
+  initBlock(freelist);
+  freelist->size = max_bytes - (METADATA_T_ALIGNED * 2); // footer, header, and freelist header
+  metadata_t * footerPtr = ((void*)((void*)freelist + freelist->size) - METADATA_T_ALIGNED);
+  freelist->size -= METADATA_T_ALIGNED;
+  initBlock(footerPtr);
+  addTag(footerPtr, 0, true);
+
   return true;
 }
 

@@ -30,6 +30,15 @@
 
 typedef enum{false, true} bool;
 
+// typedef struct metadata {
+//   bool isAllocate;
+//   size_t size;
+//   struct metadata* next;
+//   struct metadata* prev;
+// } metadata_t;
+
+// static metadata_t* freelist = NULL;
+
 bool dmalloc_init();
 void *dmalloc(size_t numbytes);
 void dfree(void *allocptr);
