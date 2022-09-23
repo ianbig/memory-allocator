@@ -73,36 +73,20 @@ void print_freelist() {
   DEBUG("\n");
 }
 
-
-/** *
- * @brief initialized header and footer to specified block
- * @param block to initialize
- * @param size size of this block (header + request_size + footer)
- * @param isAllocate indicate whether block is allocated
- */
-void add_header_footer(void * block, size_t size, bool isAllocate) {
-  metadata_t * header = block;
-  header->size = size;
-  header->isAllocate = isAllocate;
-
-  metadata_footer_t * footer = block + size - METADATA_FOOTER_T_ALIGN;
-  footer->size = size;
-  footer->isAllocate = isAllocate;
-}
-
-void insertToFreeList(metadata_t* blockToPush) {
-  if (freelist) {
-    blockToPush->next = freelist;
-    freelist->prev = blockToPush;
-  }
-  freelist = blockToPush;
-}
-
 void initHeader(metadata_t * blockToInit) {
   blockToInit->isAllocate = false;
   blockToInit->size = 0;
   blockToInit->prev = NULL;
   blockToInit->next = NULL;
+}
+
+void insertToFreeList(metadata_t* blockToPush) {
+  // TODO: change to ordered
+  if (freelist) {
+    blockToPush->next = freelist;
+    freelist->prev = blockToPush;
+  }
+  freelist = blockToPush;
 }
 
 void removeList(metadata_t * toRemove) {
@@ -122,6 +106,66 @@ void removeList(metadata_t * toRemove) {
   toRemove->prev = NULL;
 }
 
+void * coalease(void * ptr) {
+  metadata_t * prev_block = ptr - ((metadata_footer_t*)(ptr - METADATA_FOOTER_T_ALIGN))->size;
+  metadata_t * next_block = ptr + ((metadata_t*)ptr)->size;
+  metadata_t * block_header = NULL;
+  metadata_footer_t * block_footer = NULL;
+  void * coaleased_ptr = NULL;
+  size_t sz = 0;
+
+  if (prev_block->isAllocate && next_block->isAllocate) {
+    block_header = ptr;
+    block_footer = ptr + block_header->size - METADATA_FOOTER_T_ALIGN;
+    block_header->isAllocate = false;
+    block_footer->isAllocate = false;
+    return block_header;
+  } 
+  
+  if (prev_block->isAllocate && !next_block->isAllocate) {
+    removeList(next_block);
+    block_header = ptr;
+    block_footer = ptr + ((metadata_t*)ptr)->size + next_block->size - METADATA_FOOTER_T_ALIGN;
+    sz = ((metadata_t*)ptr)->size + next_block->size;
+  } else if (!prev_block->isAllocate && next_block->isAllocate) {
+    removeList(prev_block);
+    block_header = ptr - prev_block->size;
+    block_footer = ptr + ((metadata_t*)ptr)->size - METADATA_FOOTER_T_ALIGN;
+    sz = ((metadata_t*)ptr)->size + prev_block->size;
+  } else if (!prev_block->isAllocate && !next_block->isAllocate) {
+    removeList(next_block);
+    removeList(prev_block);
+    block_header = prev_block;
+    block_footer = ptr + ((metadata_t*)ptr)->size + next_block->size - METADATA_FOOTER_T_ALIGN;
+    sz = prev_block->size + next_block->size + ((metadata_t*)ptr)->size;
+  }
+
+  block_header->size = sz;
+  block_footer->size = sz;
+  block_header->isAllocate = false;
+  block_footer->isAllocate = false;
+  coaleased_ptr = block_header;
+
+  return coaleased_ptr;
+}
+
+/** *
+ * @brief initialized header and footer to specified block
+ * @param block to initialize
+ * @param size size of this block (header + request_size + footer)
+ * @param isAllocate indicate whether block is allocated
+ */
+void add_header_footer(void * block, size_t size, bool isAllocate) {
+  initHeader(block);
+  metadata_t * header = block;
+  header->size = size;
+  header->isAllocate = isAllocate;
+
+  metadata_footer_t * footer = block + size - METADATA_FOOTER_T_ALIGN;
+  footer->size = size;
+  footer->isAllocate = isAllocate;
+}
+
 
 /*
   * use policy (first fit) to find the free block
@@ -131,10 +175,12 @@ void * findFreeBlock(size_t requestedSize) {
   metadata_t * findPtr = freelist;
   while (findPtr != NULL) {
     if (!findPtr->isAllocate && findPtr->size >= requestedSize) {
+      removeList(findPtr);
       return findPtr;
     }
     findPtr = findPtr->next;
   }
+  
   return findPtr;
 }
 
@@ -142,14 +188,11 @@ void * findFreeBlock(size_t requestedSize) {
  * split block to size of bytesRequest, and insert the rest of block to free list
  * */
 void * splitBlock(void * blockToSplit, size_t bytesRequest) {
-  if (((metadata_t *)blockToSplit)->size == bytesRequest) {
+  if (((metadata_t *)blockToSplit)->size <= bytesRequest) {
     return blockToSplit;
   }
 
-  removeList(blockToSplit);
-  // TODO: add footer
   void * freeblock = blockToSplit + bytesRequest;
-  initHeader(freeblock);
   add_header_footer(freeblock,((metadata_t *)blockToSplit)->size - bytesRequest, false);
   insertToFreeList(freeblock);
 
@@ -161,35 +204,6 @@ void test_dmm_init_add_header() {
     assert(freelist->size == correctSize);
     printf("===== dmm_init Test passed!======\n");
     exit(0);
-}
-
-void* dmalloc(size_t numbytes) {
-  if(freelist == NULL) {
-    if(!dmalloc_init()) {
-      return NULL;
-    }
-    // test_dmm_init_add_header();
-  }
-
-  assert(numbytes > 0);
-
-  /* your code here */
-  numbytes = ALIGN(numbytes) + METADATA_T_ALIGNED + METADATA_FOOTER_T_ALIGN;
-  void * foundBlock = findFreeBlock(numbytes);
-  if (foundBlock == NULL) {
-    fprintf(stderr, "Error: heap size not enough\n");
-    exit(EXIT_FAILURE);
-  }
-
-  foundBlock = splitBlock(foundBlock, numbytes);
-  initHeader(foundBlock);
-  add_header_footer(foundBlock, numbytes, true);
-
-  return foundBlock + METADATA_T_ALIGNED;
-}
-
-void dfree(void* ptr) {
-  /* your code here */
 }
 
 /*
@@ -211,20 +225,51 @@ bool dmalloc_init() {
   }
 
   // add a prologue header and footer
-  initHeader(freelist);
   add_header_footer(freelist, METADATA_T_ALIGNED + METADATA_FOOTER_T_ALIGN, true);
   // init freelist header
   freelist = (void*)freelist + freelist->size;
-  initHeader(freelist);
   add_header_footer(freelist,  max_bytes - (METADATA_T_ALIGNED + METADATA_FOOTER_T_ALIGN), false);
   // add epilogue footer
   metadata_footer_t * footerPtr = ((void*)((void*)freelist + freelist->size) - METADATA_FOOTER_T_ALIGN);
-  footerPtr->size = METADATA_FOOTER_T_ALIGN + 0;
+  footerPtr->size = METADATA_FOOTER_T_ALIGN;
   footerPtr->isAllocate = true;
 
   freelist->size -= METADATA_FOOTER_T_ALIGN;
+  // print_freelist();
 
   return true;
+}
+
+void* dmalloc(size_t numbytes) {
+  if(freelist == NULL) {
+    if(!dmalloc_init()) {
+      return NULL;
+    }
+    // test_dmm_init_add_header();
+  }
+
+  assert(numbytes > 0);
+
+  /* your code here */
+  numbytes = ALIGN(numbytes) + METADATA_T_ALIGNED + METADATA_FOOTER_T_ALIGN;
+  void * foundBlock = findFreeBlock(numbytes);
+  if (foundBlock == NULL) {
+    // fprintf(stderr, "Error: heap size not enough\n");
+    return NULL;
+  }
+
+  foundBlock = splitBlock(foundBlock, numbytes);
+  add_header_footer(foundBlock, numbytes, true);
+
+  return foundBlock + METADATA_T_ALIGNED;
+}
+
+void dfree(void* ptr) {
+  /* your code here */
+  metadata_t * ptr_header = ptr - METADATA_T_ALIGNED;
+  ptr_header = coalease(ptr_header);
+  insertToFreeList(ptr_header);
+  print_freelist();
 }
 
 
