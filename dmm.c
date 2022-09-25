@@ -81,7 +81,10 @@ void initHeader(metadata_t * blockToInit) {
 }
 
 void insertToFreeList(metadata_t* blockToPush) {
-  // TODO: change to ordered
+  if (blockToPush->size == 0) {
+    int * p = 0x0;
+    *p = 10;
+  }
   if (freelist) {
     blockToPush->next = freelist;
     freelist->prev = blockToPush;
@@ -94,11 +97,11 @@ void removeList(metadata_t * toRemove) {
     freelist = freelist->next;
   }
 
-  if (toRemove->prev) {
+  if (toRemove->prev != NULL) {
     toRemove->prev->next = toRemove->next;
   }
 
-  if (toRemove->next) {
+  if (toRemove->next != NULL) {
     toRemove->next->prev = toRemove->prev;
   }
 
@@ -129,7 +132,7 @@ void * coalease(void * ptr) {
     sz = ((metadata_t*)ptr)->size + next_block->size;
   } else if (!prev_block->isAllocate && next_block->isAllocate) {
     removeList(prev_block);
-    block_header = ptr - prev_block->size;
+    block_header = prev_block;
     block_footer = ptr + ((metadata_t*)ptr)->size - METADATA_FOOTER_T_ALIGN;
     sz = ((metadata_t*)ptr)->size + prev_block->size;
   } else if (!prev_block->isAllocate && !next_block->isAllocate) {
@@ -156,10 +159,11 @@ void * coalease(void * ptr) {
  * @param isAllocate indicate whether block is allocated
  */
 void add_header_footer(void * block, size_t size, bool isAllocate) {
-  initHeader(block);
   metadata_t * header = block;
   header->size = size;
   header->isAllocate = isAllocate;
+  header->prev = NULL;
+  header->next = NULL;
 
   metadata_footer_t * footer = block + size - METADATA_FOOTER_T_ALIGN;
   footer->size = size;
@@ -192,8 +196,13 @@ void * splitBlock(void * blockToSplit, size_t bytesRequest) {
     return blockToSplit;
   }
 
+  size_t freeblock_size = ((metadata_t *)blockToSplit)->size - bytesRequest;
+  if (freeblock_size < (METADATA_FOOTER_T_ALIGN + METADATA_T_ALIGNED)) {
+    return blockToSplit;
+  }
+
   void * freeblock = blockToSplit + bytesRequest;
-  add_header_footer(freeblock,((metadata_t *)blockToSplit)->size - bytesRequest, false);
+  add_header_footer(freeblock, freeblock_size, false);
   insertToFreeList(freeblock);
 
   return blockToSplit;
@@ -226,15 +235,16 @@ bool dmalloc_init() {
 
   // add a prologue header and footer
   add_header_footer(freelist, METADATA_T_ALIGNED + METADATA_FOOTER_T_ALIGN, true);
-  // init freelist header
-  freelist = (void*)freelist + freelist->size;
-  add_header_footer(freelist,  max_bytes - (METADATA_T_ALIGNED + METADATA_FOOTER_T_ALIGN), false);
+  void * ptr = freelist;
+  ptr += METADATA_T_ALIGNED + METADATA_FOOTER_T_ALIGN;
+  size_t freelist_size = max_bytes - (METADATA_T_ALIGNED + 2 * METADATA_FOOTER_T_ALIGN);
   // add epilogue footer
-  metadata_footer_t * footerPtr = ((void*)((void*)freelist + freelist->size) - METADATA_FOOTER_T_ALIGN);
+  metadata_footer_t * footerPtr = ptr + freelist_size;
   footerPtr->size = METADATA_FOOTER_T_ALIGN;
   footerPtr->isAllocate = true;
-
-  freelist->size -= METADATA_FOOTER_T_ALIGN;
+   // init freelist header
+  freelist = ptr;
+  add_header_footer(freelist, freelist_size, false);
   // print_freelist();
 
   return true;
@@ -254,7 +264,6 @@ void* dmalloc(size_t numbytes) {
   numbytes = ALIGN(numbytes) + METADATA_T_ALIGNED + METADATA_FOOTER_T_ALIGN;
   void * foundBlock = findFreeBlock(numbytes);
   if (foundBlock == NULL) {
-    // fprintf(stderr, "Error: heap size not enough\n");
     return NULL;
   }
 
@@ -269,7 +278,7 @@ void dfree(void* ptr) {
   metadata_t * ptr_header = ptr - METADATA_T_ALIGNED;
   ptr_header = coalease(ptr_header);
   insertToFreeList(ptr_header);
-  print_freelist();
+  // print_freelist();
 }
 
 
